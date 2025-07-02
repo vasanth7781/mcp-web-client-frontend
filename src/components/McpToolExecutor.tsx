@@ -13,14 +13,13 @@ interface McpTool {
 }
 
 interface ConfiguredServer {
-  id: string;
-  session_id: string;
-  server_id: string;
-  server_name: string;
-  is_configured: boolean;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
+  sessionId: string;
+  serverId: string;
+  serverName: string;
+  installedAt: string;
+  isActive: boolean;
+  isRunning?: boolean;
+  needsCredentials?: boolean;
 }
 
 interface McpToolExecutorProps {
@@ -134,7 +133,7 @@ export default function McpToolExecutor({ sessionId }: McpToolExecutorProps) {
       setConfiguredServers(data.servers || []);
       
       if (data.servers?.length > 0) {
-        setSelectedServer(data.servers[0].server_id);
+        setSelectedServer(data.servers[0].serverId);
       }
     } catch (error) {
       console.error('Failed to load configured servers:', error);
@@ -166,12 +165,73 @@ export default function McpToolExecutor({ sessionId }: McpToolExecutorProps) {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(toolParameters),
+          body: JSON.stringify({ parameters: toolParameters }),
         }
       );
 
-      const result = await response.json();
-      setExecutionResult(result);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let toolExecutionResult = null;
+      let aiAnalysis = '';
+      let hasError = false;
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  
+                  if (parsed.type === 'tool_execution_result') {
+                    toolExecutionResult = parsed.result;
+                  } else if (parsed.type === 'error') {
+                    hasError = true;
+                    toolExecutionResult = {
+                      success: false,
+                      error: parsed.error || parsed.message,
+                      tool_name: parsed.tool_name,
+                      server_id: parsed.server_id,
+                    };
+                  } else if (parsed.type === 'ai_analysis') {
+                    aiAnalysis += parsed.content;
+                  }
+                } catch (parseError) {
+                  console.warn('Failed to parse SSE data:', data);
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
+      // Set the final result
+      if (toolExecutionResult) {
+        setExecutionResult({
+          ...toolExecutionResult,
+          ai_analysis: aiAnalysis || undefined,
+        });
+      } else {
+        setExecutionResult({
+          success: false,
+          error: 'No tool execution result received',
+        });
+      }
     } catch (error) {
       setExecutionResult({
         success: false,
@@ -230,11 +290,27 @@ export default function McpToolExecutor({ sessionId }: McpToolExecutorProps) {
           className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
         >
           {configuredServers.map((server) => (
-            <option key={server.server_id} value={server.server_id}>
-              {server.server_name}
+            <option key={server.serverId} value={server.serverId}>
+              {server.serverName} {server.needsCredentials ? '(needs credentials)' : '(running)'}
             </option>
           ))}
         </select>
+        
+        {selectedServer && configuredServers.find(s => s.serverId === selectedServer)?.needsCredentials && (
+          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-start space-x-2">
+              <XCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm text-amber-700">
+                  This server needs credentials to start before you can execute tools.
+                </p>
+                <p className="text-xs text-amber-600 mt-1">
+                  💡 Go to the chat interface and provide credentials for this server.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tool Selection */}
@@ -289,13 +365,18 @@ export default function McpToolExecutor({ sessionId }: McpToolExecutorProps) {
       {selectedTool && (
         <button
           onClick={executeTool}
-          disabled={isExecuting}
+          disabled={isExecuting || configuredServers.find(s => s.serverId === selectedServer)?.needsCredentials}
           className="w-full flex items-center justify-center space-x-2 bg-black text-white py-2 px-4 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isExecuting ? (
             <>
               <Loader2 size={16} className="animate-spin" />
               <span>Executing...</span>
+            </>
+          ) : configuredServers.find(s => s.serverId === selectedServer)?.needsCredentials ? (
+            <>
+              <XCircle size={16} />
+              <span>Server Needs Credentials</span>
             </>
           ) : (
             <>
@@ -320,7 +401,34 @@ export default function McpToolExecutor({ sessionId }: McpToolExecutorProps) {
             </h3>
           </div>
           
+          {!executionResult.success && executionResult.error?.includes('not running') && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-2">
+                <XCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="text-sm font-medium text-yellow-800">Server Not Running</h4>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    The MCP server needs to be started with credentials before you can execute tools.
+                  </p>
+                  <p className="text-xs text-yellow-600 mt-2">
+                    💡 Go back to the chat interface and provide credentials for this server to start it.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {executionResult.success && executionResult.ai_analysis && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <h4 className="text-sm font-medium text-blue-800 mb-2">AI Analysis</h4>
+              <div className="text-sm text-blue-700 whitespace-pre-wrap">
+                {executionResult.ai_analysis}
+              </div>
+            </div>
+          )}
+          
           <div className="bg-gray-50 rounded-lg p-4 border">
+            <h4 className="text-xs font-medium text-gray-600 mb-2">Raw Result</h4>
             <pre className="text-xs text-gray-800 whitespace-pre-wrap overflow-x-auto">
               {JSON.stringify(executionResult, null, 2)}
             </pre>

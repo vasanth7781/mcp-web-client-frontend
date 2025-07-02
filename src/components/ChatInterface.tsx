@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Server, CheckCircle, Settings, Bot, User, Search, HelpCircle, Book, Zap, Database, Globe, GitBranch, FileText } from 'lucide-react';
+import { Send, Loader2, Server, CheckCircle, Settings, Bot, User, Search, HelpCircle, Book, Zap, Database, Globe, GitBranch, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import McpCredentialModal from './McpCredentialModal';
 import SearchReferenceModal from './SearchReferenceModal';
 import MarkdownJSX from 'markdown-to-jsx';
@@ -56,6 +56,7 @@ export function ChatInterface() {
   const [pendingFunctionCalls, setPendingFunctionCalls] = useState<FunctionCall[]>([]);
   const [conversationHistory, setConversationHistory] = useState<any[]>([]);
   const [isProcessingFunctions, setIsProcessingFunctions] = useState(false);
+  const [expandedFunctions, setExpandedFunctions] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -347,15 +348,15 @@ export function ChatInterface() {
         loadSessionServers();
       }, 1000);
       
-      // Send a simple completion message instead of triggering more function calls
-      const completionMessage: Message = {
-        id: `msg-${Date.now()}-completion`,
-        content: `✅ **${serverId} is now active!**\n\nYour server is running and ready to use. You can now:\n- View active tools\n- Execute MCP commands\n- Manage your session\n\nTry asking: "What tools are available?" or "Show me the session status"`,
-        sender: 'assistant',
-        timestamp: new Date(),
-      };
+      // // Send a simple completion message instead of triggering more function calls
+      // const completionMessage: Message = {
+      //   id: `msg-${Date.now()}-completion`,
+      //   content: `✅ **${serverId} is now active!**\n\nYour server is running and ready to use. You can now:\n- View active tools\n- Execute MCP commands\n- Manage your session\n\nTry asking: "What tools are available?" or "Show me the session status"`,
+      //   sender: 'assistant',
+      //   timestamp: new Date(),
+      // };
       
-      setMessages(prev => [...prev, completionMessage]);
+      // setMessages(prev => [...prev, completionMessage]);
     }
   };
 
@@ -520,199 +521,268 @@ export function ChatInterface() {
     loadSessionServers();
   }, [sessionId]);
 
-  const renderFunctionCall = (functionCall: FunctionCall) => {
-    const { function_result } = functionCall;
+  const toggleFunctionExpansion = (functionId: string) => {
+    setExpandedFunctions(prev => {
+      const newSet = new Set(prev);
+      // For all function calls, toggle the "collapsed" state (default to expanded)
+      const collapsedId = `collapsed-${functionId}`;
+      if (newSet.has(collapsedId)) {
+        newSet.delete(collapsedId);
+      } else {
+        newSet.add(collapsedId);
+      }
+      return newSet;
+    });
+  };
+
+  const show_mcp_recommendations = (functionCall: FunctionCall) => {
+    const functionId = `${functionCall.function_name}-${Date.now()}`;
+    // For all function calls, default to expanded (open) unless explicitly collapsed
+    const mcpFunctionTypes = ['mcp_recommendations', 'available_tools', 'tool_execution_result'];
+    const isExpanded = mcpFunctionTypes.includes(functionCall.function_result?.type)
+      ? !expandedFunctions.has(`collapsed-${functionId}`)
+      : !expandedFunctions.has(`collapsed-${functionId}`);
     
-    switch (function_result.type) {
-      case 'mcp_recommendations':
-        return (
-          <div className="mt-4 space-y-2">
-            <h4 className="text-xs font-medium text-gray-700 mb-2">📦 Recommended MCP Servers:</h4>
-            {function_result.message && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                <p className="text-xs text-blue-800">{function_result.message}</p>
-              </div>
-            )}
-            <div className="grid gap-2">
-              {(function_result.recommendations || function_result.servers || []).map((server: McpServer) => (
-                <div key={server.id} className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
+    if (functionCall.function_result?.type === 'mcp_recommendations') {
+      const servers = functionCall.function_result.recommendations || [];
+      return (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div 
+            className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 rounded px-2 -mx-2"
+            onClick={() => toggleFunctionExpansion(functionId)}
+          >
+            <div className="flex items-center space-x-2">
+              <Server size={14} className="text-gray-600" />
+              <span className="text-xs font-medium text-gray-900">Found {servers.length} MCP Servers</span>
+            </div>
+            {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+          </div>
+          
+          {isExpanded && (
+            <div className="mt-3 space-y-3">
+              {servers.map((server: McpServer) => (
+                <div key={server.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <h5 className="text-sm font-semibold text-black">{server.name}</h5>
-                      <p className="text-xs text-gray-600 mt-1">{server.description}</p>
-                      <div className="flex items-center gap-3 mt-2">
-                        <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
-                          {Array.isArray(server.category) ? server.category.join(', ') : server.category}
+                      <div className="flex items-center space-x-2 mb-2">
+                        <h4 className="font-medium text-sm text-gray-900">{server.name}</h4>
+                        <span className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs font-medium">
+                          {server.category}
                         </span>
                         {server.metadata?.quality_score && (
-                          <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
-                            Quality: {server.metadata.quality_score}
-                          </span>
-                        )}
-                        {server.metadata?.stars && (
-                          <span className="text-xs text-gray-500">
-                            ⭐ {server.metadata.stars}
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
+                            {server.metadata.quality_score}
                           </span>
                         )}
                       </div>
-                      <div className="mt-2">
-                        <span className="text-xs text-gray-500">Tools: </span>
-                        <span className="text-xs text-black">
-                          {(server.tools || []).join(', ') || 'Various tools'}
-                        </span>
-                      </div>
+                      <p className="text-xs text-gray-600 mb-3 leading-relaxed">{server.description}</p>
+                      {server.tools && server.tools.length > 0 && (
+                        <div className="mb-3">
+                          <span className="text-xs font-medium text-gray-700">Tools: </span>
+                          <span className="text-xs text-gray-600">{server.tools.slice(0, 3).join(', ')}</span>
+                          {server.tools.length > 3 && <span className="text-xs text-gray-500"> +{server.tools.length - 3} more</span>}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => handleAddServer(server.id, server.name)}
-                      className="ml-3 px-3 py-1.5 bg-black text-white text-xs rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1"
+                      className="ml-4 px-3 py-2 bg-black text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors flex items-center space-x-1"
                     >
-                      <Server className="w-3 h-3" />
-                      Add to Session
+                      <span>Add</span>
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-        );
-
-      case 'server_added':
-        return (
-          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center">
-              <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
-              <span className="text-green-800 text-sm">
-                ✅ Added {function_result.server_name} to your session!
-                {function_result.requires_credentials && (
-                  <span className="block text-xs mt-1">
-                    Configure credentials to start using this server.
-                  </span>
-                )}
-                {!function_result.requires_credentials && (
-                  <span className="block text-xs mt-1">
-                    Install command: <code className="bg-green-100 px-2 py-1 rounded text-xs">{function_result.setup_instructions?.install_command}</code>
-                  </span>
-                )}
-              </span>
-            </div>
-            {function_result.requires_credentials && function_result.credential_requirements && (
-              <button
-                className="mt-2 px-3 py-1.5 bg-black text-white text-xs rounded-lg hover:bg-gray-800 transition-colors"
-                onClick={() => {
-                  setCredentialRequirements({
-                    server_id: function_result.server_id,
-                    server_name: function_result.server_name,
-                    required_fields: function_result.credential_requirements || []
-                  });
-                  setShowCredentialModal(true);
-                }}
-              >
-                🔑 Configure Credentials
-              </button>
-            )}
-          </div>
-        );
-
-      case 'credential_collection':
-        return (
-          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex items-center">
-              <Settings className="w-4 h-4 text-yellow-600 mr-2" />
-              <span className="text-yellow-800 text-sm">
-                🔑 {function_result.server_name} requires credentials to function.
-              </span>
-            </div>
-            <button
-              className="mt-2 px-3 py-1.5 bg-black text-white text-xs rounded-lg hover:bg-gray-800 transition-colors"
-              onClick={() => {
-                setCredentialRequirements({
-                  server_id: function_result.server_id,
-                  server_name: function_result.server_name,
-                  required_fields: function_result.credential_requirements || []
-                });
-                setShowCredentialModal(true);
-              }}
-            >
-              Configure Credentials
-            </button>
-          </div>
-        );
-
-      case 'available_tools':
-        return (
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-medium text-gray-700 mb-2">🛠️ Available Tools:</h4>
-              <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
-                <p className="text-xs text-green-700">✅ Active</p>
-              </div>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-              <p className="text-xs text-blue-800">
-                <strong>MCP Tools:</strong> These are real tools from configured MCP servers. 
-                Click any tool button below to execute it with the connected server.
-              </p>
-            </div>
-            {(function_result.servers || []).map((server: any) => (
-              <div key={server.server_id} className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
-                <h5 className="text-sm font-semibold text-black mb-2">{server.server_name}</h5>
-                <div className="flex flex-wrap gap-1">
-                  {(server.tools || []).map((tool: string) => (
-                    <button
-                      key={tool}
-                      onClick={() => handleExecuteTool(server.server_id, tool)}
-                      className="px-2 py-1 text-xs text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
-                    >
-                      {tool}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-
-      case 'tool_execution':
-      case 'tool_demo':
-        return (
-          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-            <h5 className="text-sm font-semibold text-green-900">
-              ✅ Tool Executed: {function_result.tool_name}
-            </h5>
-            <div className="text-xs mt-2 p-2 bg-gray-100 rounded">
-              <div className="text-green-800 mb-2 flex items-center">
-                <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                Successfully executed {function_result.tool_name} on MCP server
-              </div>
-              <pre className="overflow-x-auto text-gray-600">
-                {JSON.stringify(function_result.result, null, 2)}
-              </pre>
-            </div>
-          </div>
-        );
-
-      case 'session_status':
-        return (
-          <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-            <h5 className="text-sm font-semibold text-gray-900">📊 Session Status</h5>
-            <p className="text-xs text-gray-600 mt-1">
-              Active servers: {function_result.total_servers || 0}
-            </p>
-            {(function_result.servers || []).map((server: any) => (
-              <div key={server.server_id} className="text-xs text-gray-500 mt-1">
-                • {server.server_name}
-              </div>
-            ))}
-          </div>
-        );
-
-      default:
-        return (
-          <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-            <pre className="text-xs">{JSON.stringify(function_result, null, 2)}</pre>
-          </div>
-        );
+          )}
+        </div>
+      );
     }
+
+    if (functionCall.function_result?.type === 'session_status') {
+      const result = functionCall.function_result;
+      return (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div 
+            className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 rounded px-2 -mx-2"
+            onClick={() => toggleFunctionExpansion(functionId)}
+          >
+            <div className="flex items-center space-x-2">
+              <Settings size={14} className="text-gray-600" />
+              <span className="text-xs font-medium text-gray-900">Session Status</span>
+            </div>
+            {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+          </div>
+          
+          {isExpanded && (
+            <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-medium text-gray-700">Session ID:</span>
+                  <span className="text-xs text-gray-600 font-mono">{result.session_id?.slice(-8)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-medium text-gray-700">Active Servers:</span>
+                  <span className="text-xs text-gray-600">{result.total_servers}</span>
+                </div>
+                {result.servers && result.servers.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <span className="text-xs font-medium text-gray-700">Configured Servers:</span>
+                    {result.servers.map((server: any, index: number) => (
+                      <div key={index} className="flex items-center space-x-2 p-2 bg-white rounded border">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span className="text-xs text-gray-900 font-medium">{server.serverName}</span>
+                        <span className="text-xs text-gray-500">({server.serverId})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (functionCall.function_result?.type === 'available_tools') {
+      const result = functionCall.function_result;
+      return (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div 
+            className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 rounded px-2 -mx-2"
+            onClick={() => toggleFunctionExpansion(functionId)}
+          >
+            <div className="flex items-center space-x-2">
+              <Zap size={14} className="text-gray-600" />
+              <span className="text-xs font-medium text-gray-900">Available Tools ({result.tools})</span>
+            </div>
+            {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+          </div>
+          
+          {isExpanded && (
+            <div className="mt-3 space-y-3">
+              {result.servers?.map((server: any, serverIndex: number) => (
+                <div key={serverIndex} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-sm font-medium text-gray-900">{server.server_name}</span>
+                    <span className="text-xs text-gray-500">({server.tools?.length || 0} tools)</span>
+                  </div>
+                  {server.tools && server.tools.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {server.tools.map((tool: any, toolIndex: number) => {
+                        // Handle both string and object tool formats
+                        const toolName = typeof tool === 'string' ? tool : tool.name;
+                        const toolDescription = typeof tool === 'string' ? tool : tool.description;
+                        
+                        return (
+                          <button
+                            key={toolIndex}
+                            onClick={() => handleExecuteTool(server.server_id, toolName)}
+                            className="bg-black text-white px-3 py-2 rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors flex items-center space-x-2 group"
+                            title={toolDescription}
+                          >
+                            <span>{toolName}</span>
+                            <Zap size={12} className="opacity-70 group-hover:opacity-100" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 italic">No tools available</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (functionCall.function_result?.type === 'tool_execution_result') {
+      const result = functionCall.function_result.result;
+      return (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div 
+            className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 rounded px-2 -mx-2"
+            onClick={() => toggleFunctionExpansion(functionId)}
+          >
+            <div className="flex items-center space-x-2">
+              <Zap size={14} className="text-gray-600" />
+              <span className="text-xs font-medium text-gray-900">EXECUTION RESULTS</span>
+              <span className={`px-2 py-1 text-xs rounded ${result?.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {result?.success ? 'Success' : 'Failed'}
+              </span>
+            </div>
+            {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+          </div>
+          
+          {isExpanded && result && (
+            <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-medium text-gray-700">Status:</span>
+                  <span className="text-xs text-gray-600">{result.message}</span>
+                </div>
+                {result.execution_time && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-medium text-gray-700">Execution Time:</span>
+                    <span className="text-xs text-gray-600">{result.execution_time}ms</span>
+                  </div>
+                )}
+                {result.result && (
+                  <div className="mt-3">
+                    <span className="text-xs font-medium text-gray-700 block mb-2">Result:</span>
+                    <pre className="text-xs bg-white p-3 rounded border border-gray-200 overflow-x-auto text-gray-800 leading-relaxed">
+                      {typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default function call rendering
+    return (
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <div 
+          className="flex items-center justify-between cursor-pointer py-2 hover:bg-gray-50 rounded px-2 -mx-2"
+          onClick={() => toggleFunctionExpansion(functionId)}
+        >
+          <div className="flex items-center space-x-2">
+            <Settings size={14} className="text-gray-600" />
+            <span className="text-xs font-medium text-gray-900">{functionCall.function_name}</span>
+          </div>
+          {isExpanded ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
+        </div>
+        
+        {isExpanded && (
+          <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="space-y-3">
+              {functionCall.function_args && Object.keys(functionCall.function_args).length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-gray-700 block mb-2">Arguments:</span>
+                  <pre className="text-xs bg-white p-3 rounded border border-gray-200 overflow-x-auto text-gray-800">
+                    {JSON.stringify(functionCall.function_args, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {functionCall.function_result && (
+                <div>
+                  <span className="text-xs font-medium text-gray-700 block mb-2">Result:</span>
+                  <pre className="text-xs bg-white p-3 rounded border border-gray-200 overflow-x-auto text-gray-800">
+                    {JSON.stringify(functionCall.function_result, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -740,6 +810,52 @@ export function ChatInterface() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl shadow-sm border border-blue-200 p-6">
+          <div className="flex items-center space-x-2 mb-4">
+            <Bot className="text-blue-600" size={20} />
+            <h3 className="font-semibold text-gray-900">🤖 Smart Tool Execution</h3>
+            <span className="bg-blue-200 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">NEW</span>
+          </div>
+                     <div className="bg-white rounded-lg p-3 mb-4">
+             <p className="text-sm text-blue-800">
+               <strong>Claude now executes tools automatically!</strong> No more clicking buttons - just ask for what you need and I'll execute the right tools immediately.
+             </p>
+             <p className="text-xs text-blue-700 mt-2">
+               Try: "Query my database", "Search my files", "Create an issue" - I'll execute the tools and show results instantly!
+             </p>
+           </div>
+          <div className="space-y-3">
+                         <button
+               onClick={() => handleSuggestionClick("Show me my database tables")}
+               className="w-full text-left p-3 bg-white hover:bg-gray-50 rounded-lg transition-colors border border-blue-200"
+             >
+               <div className="text-sm font-medium text-gray-900">🗄️ List Database Tables</div>
+               <div className="text-xs text-gray-600">Instant database schema information</div>
+             </button>
+             <button
+               onClick={() => handleSuggestionClick("Query my users table and show me the first 10 records")}
+               className="w-full text-left p-3 bg-white hover:bg-gray-50 rounded-lg transition-colors border border-blue-200"
+             >
+               <div className="text-sm font-medium text-gray-900">📊 Quick Data Query</div>
+               <div className="text-xs text-gray-600">Execute SQL queries automatically</div>
+             </button>
+             <button
+               onClick={() => handleSuggestionClick("Search for files containing 'API' in my project")}
+               className="w-full text-left p-3 bg-white hover:bg-gray-50 rounded-lg transition-colors border border-blue-200"
+             >
+               <div className="text-sm font-medium text-gray-900">📁 Find Files</div>
+               <div className="text-xs text-gray-600">Search and locate files instantly</div>
+             </button>
+             <button
+               onClick={() => handleSuggestionClick("Search for recent AI developments")}
+               className="w-full text-left p-3 bg-white hover:bg-gray-50 rounded-lg transition-colors border border-blue-200"
+             >
+               <div className="text-sm font-medium text-gray-900">📰 Web Search</div>
+               <div className="text-xs text-gray-600">Get latest information from the web</div>
+             </button>
+          </div>
+        </div>
+
         {/* Quick Start Examples */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center space-x-2 mb-4">
@@ -825,10 +941,9 @@ export function ChatInterface() {
   "mcpServers": {
     "supabase": {
       "command": "npx",
-      "args": ["@joshuarileydev/supabase-mcp-server"],
+      "args": ["-y", "@joshuarileydev/supabase-mcp-server"],
       "env": {
         "SUPABASE_API_KEY": "your-api-key",
-        "SUPABASE_URL": "https://your-project.supabase.co"
       }
     }
   }
@@ -895,28 +1010,32 @@ export function ChatInterface() {
       {/* Main Chat Area */}
       <div className="flex flex-col flex-1">
         {/* Header */}
-        <div className="border-b border-gray-200 p-4 bg-white shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">MCP Chat Assistant</h1>
-              <p className="text-sm text-gray-600">Discover, configure, and integrate MCP servers</p>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+              <Bot size={18} className="text-white" />
             </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowReferenceModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-all duration-200 text-sm font-medium"
-              >
-                <Book size={16} />
-                <span>Reference</span>
-              </button>
-              <button
-                onClick={() => setShowSessionPanel(!showSessionPanel)}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-sm font-medium"
-              >
-                <Server size={16} />
-                <span>{sessionServers.length} active</span>
-              </button>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900">MCP Chat Assistant</h1>
+              <p className="text-xs text-gray-600">Find and interact with MCP servers</p>
             </div>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setShowReferenceModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-sm font-medium"
+            >
+              <Book size={16} />
+              <span>Reference</span>
+            </button>
+            <button
+              onClick={() => setShowSessionPanel(!showSessionPanel)}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-sm font-medium"
+            >
+              <Server size={16} />
+              <span>{sessionServers.length} active</span>
+            </button>
           </div>
         </div>
 
@@ -933,7 +1052,7 @@ export function ChatInterface() {
                   <div className={`flex max-w-3xl ${message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                       message.sender === 'user' 
-                        ? 'bg-blue-600 ml-3' 
+                        ? 'bg-black ml-3' 
                         : 'bg-white border-2 border-gray-200 mr-3'
                     }`}>
                       {message.sender === 'user' ? (
@@ -945,44 +1064,44 @@ export function ChatInterface() {
                     
                     <div className={`rounded-2xl px-6 py-4 max-w-full shadow-sm ${
                       message.sender === 'user' 
-                        ? 'bg-blue-600 text-white' 
+                        ? 'bg-black text-white' 
                         : 'bg-white border border-gray-200'
                     }`}>
                       {message.sender === 'user' ? (
-                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
                       ) : (
                         <div className="streaming-message text-sm text-gray-800 leading-relaxed">
                           <MarkdownJSX 
                             options={{
                               overrides: {
-                                p: { props: { className: 'mb-4 last:mb-0 leading-relaxed' } },
-                                ul: { props: { className: 'mb-4 last:mb-0 space-y-2 pl-4' } },
-                                ol: { props: { className: 'mb-4 last:mb-0 space-y-2 pl-4' } },
-                                li: { props: { className: 'leading-relaxed' } },
-                                code: { props: { className: 'bg-gray-100 px-2 py-1 rounded font-mono text-sm' } },
-                                pre: { props: { className: 'bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4 last:mb-0' } },
-                                h1: { props: { className: 'text-xl font-bold mb-4 text-gray-900' } },
-                                h2: { props: { className: 'text-lg font-bold mb-3 text-gray-900' } },
-                                h3: { props: { className: 'text-base font-semibold mb-3 text-gray-900' } },
+                                p: { props: { className: 'mb-4 last:mb-0 leading-relaxed text-gray-800' } },
+                                ul: { props: { className: 'mb-4 last:mb-0 space-y-1 pl-4 text-gray-800' } },
+                                ol: { props: { className: 'mb-4 last:mb-0 space-y-1 pl-4 text-gray-800' } },
+                                li: { props: { className: 'leading-relaxed text-gray-800' } },
+                                code: { props: { className: 'bg-gray-100 px-2 py-1 rounded font-mono text-xs text-gray-900' } },
+                                pre: { props: { className: 'bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4 last:mb-0 text-xs' } },
+                                h1: { props: { className: 'text-lg font-bold mb-4 text-gray-900' } },
+                                h2: { props: { className: 'text-base font-bold mb-3 text-gray-900' } },
+                                h3: { props: { className: 'text-sm font-semibold mb-3 text-gray-900' } },
                                 h4: { props: { className: 'text-sm font-semibold mb-2 text-gray-900' } },
                                 strong: { props: { className: 'font-semibold text-gray-900' } },
-                                em: { props: { className: 'italic' } },
-                                blockquote: { props: { className: 'border-l-4 border-blue-200 pl-4 mb-4 last:mb-0 italic text-gray-700' } },
-                                a: { props: { className: 'text-blue-600 underline hover:text-blue-800 transition-colors' } },
+                                em: { props: { className: 'italic text-gray-700' } },
+                                blockquote: { props: { className: 'border-l-4 border-gray-300 pl-4 mb-4 last:mb-0 italic text-gray-700' } },
+                                a: { props: { className: 'text-black underline hover:text-gray-700 transition-colors font-medium' } },
                               }
                             }}
                           >
                             {message.content || (isLoading && message.id === messages[messages.length - 1]?.id ? 'Thinking...' : '')}
                           </MarkdownJSX>
-                          {isLoading && message.id === messages[messages.length - 1]?.id && (
-                            <span className="streaming-cursor inline-block w-2 h-5 bg-blue-600 ml-1 align-middle animate-pulse"></span>
-                          )}
+                          {isLoading && message.id === messages[messages.length - 1]?.id ? (
+                            <span className="streaming-cursor inline-block w-2 h-5 bg-black ml-1 align-middle animate-pulse"></span>
+                          ) : null}
                         </div>
                       )}
                       
                       {message.functionCalls?.map((functionCall, index) => (
                         <div key={index}>
-                          {renderFunctionCall(functionCall)}
+                          {show_mcp_recommendations(functionCall)}
                         </div>
                       ))}
                     </div>
@@ -1004,34 +1123,27 @@ export function ChatInterface() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask me to find MCP servers, paste URLs, or describe your use case..."
-                className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-500"
+                className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white text-gray-900 placeholder-gray-500 text-sm shadow-sm"
                 disabled={isLoading || isProcessingFunctions}
               />
               <button
                 onClick={sendMessage}
                 disabled={isLoading || isProcessingFunctions || !input.trim()}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 shadow-sm"
+                className="px-6 py-3 bg-black text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 shadow-sm min-w-[100px] justify-center"
               >
                 {isLoading || isProcessingFunctions ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>{isProcessingFunctions ? 'Processing...' : 'Sending...'}</span>
+                    <span className="text-sm font-medium">{isProcessingFunctions ? 'Processing' : 'Sending'}</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>Send</span>
+                    <span className="text-sm font-medium">Send</span>
                   </>
                 )}
               </button>
             </div>
-
-            {isProcessingFunctions && (
-              <div className="mt-3 flex items-center space-x-2 text-sm text-gray-600 bg-blue-50 px-4 py-2 rounded-lg">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                <span>Processing function results and continuing conversation...</span>
-              </div>
-            )}
           </div>
         </div>
       </div>
